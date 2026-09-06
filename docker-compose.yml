@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_DB: webhooks
+      POSTGRES_USER: webhook
+      POSTGRES_PASSWORD: webhook
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhook -d webhooks"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  api:
+    build:
+      context: .
+      target: backend
+    environment:
+      DATABASE_URL: postgres://webhook:webhook@db:5432/webhooks
+      PORT: 3000
+      MAX_ATTEMPTS: 5
+      LEASE_SECONDS: 15
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker-1:
+    build:
+      context: .
+      target: worker
+    environment:
+      DATABASE_URL: postgres://webhook:webhook@db:5432/webhooks
+      WORKER_ID: worker-1
+      MAX_ATTEMPTS: 5
+      LEASE_SECONDS: 15
+      POLL_INTERVAL_MS: 250
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker-2:
+    build:
+      context: .
+      target: worker
+    environment:
+      DATABASE_URL: postgres://webhook:webhook@db:5432/webhooks
+      WORKER_ID: worker-2
+      MAX_ATTEMPTS: 5
+      LEASE_SECONDS: 15
+      POLL_INTERVAL_MS: 250
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3000
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
